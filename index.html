@@ -308,7 +308,7 @@ function startBlink(){
 /* ================= STATE ================= */
 let mode='home', capId=null, tab='adv', lesson=null, segIdx=0, curSent=-1,
     readStars=store.get('readStars',true), practice='say', pStar=null, pIx=0,
-    rec=null, recOn=false, transcript='', hits={}, seqState=null, drill=null, q='';
+    rec=null, recOn=false, recWatch=null, transcript='', hits={}, seqState=null, drill=null, q='';
 
 /* ================= HELPERS ================= */
 function paras(arr,cls){
@@ -516,10 +516,37 @@ function openCap(id){stopSpeech();capId=id;lesson=buildLesson(cap(id));segIdx=0;
 
 /* ================= PRACTICE ================= */
 function initRec(){
+  try{
+    const R=window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!R)return null;
+    const r=new R();
+    /* continuous mode is unreliable on iOS and can wedge the audio session */
+    r.continuous=false;r.interimResults=true;r.maxAlternatives=1;
+    r.lang=(SP.voice&&SP.voice.lang)||'en-AU';
+    return r;
+  }catch(e){return null;}
+}
+function micAvailable(){
   const R=window.SpeechRecognition||window.webkitSpeechRecognition;
-  if(!R)return null;
-  const r=new R();r.continuous=true;r.interimResults=true;r.lang='en-AU';
-  return r;
+  if(!R)return 'This browser has no in-page speech recognition.';
+  if(window.isSecureContext===false)return 'The page is not on a secure https address, so the microphone cannot be granted.';
+  return null;
+}
+function killRec(){
+  recOn=false;
+  if(recWatch){clearTimeout(recWatch);recWatch=null;}
+  if(rec){try{rec.onresult=rec.onend=rec.onerror=rec.onstart=null;}catch(e){}
+    try{rec.abort();}catch(e){} try{rec.stop();}catch(e){} }
+  rec=null;
+}
+function note(msg,kind){
+  const n=document.getElementById('micnote');
+  if(n){n.className=kind==='warn'?'warn':'sub';n.innerHTML=msg;}
+}
+function paintHits(s){
+  document.querySelectorAll('.key').forEach(k=>{k.className='key'+(hits[k.dataset.k]?' hit':'');});
+  const hc=document.getElementById('hitc');
+  if(hc)hc.textContent=Object.keys(hits).length+' of '+(s.keys||[]).length+' key facts landed';
 }
 function norm(s){return String(s).toLowerCase().replace(/[^a-z0-9$ ]/g,' ').replace(/\s+/g,' ').trim();}
 function checkHits(star){
@@ -534,6 +561,7 @@ function checkHits(star){
     const digits=n.replace(/[^0-9]/g,'');
     if(digits.length>=3&&t.replace(/[^0-9]/g,'').includes(digits))h[k]=1;
   });
+  Object.keys(hits).forEach(k=>{if(hits[k]===2)h[k]=2;});  /* keep manual taps */
   hits=h;
 }
 function renderPractice(){
@@ -546,57 +574,111 @@ function renderPractice(){
   head.appendChild(el('div','sub','Say it out loud. That is the whole point — a STAR you have only read is a STAR you cannot deliver.'));
   const sel=el('select');sel.style.cssText='width:100%;margin-top:12px;background:#16233c;border:1px solid var(--line);color:var(--ink);border-radius:12px;padding:11px;font-size:14px';
   all.forEach((x,ix)=>{const o=new Option(x.cap.name+' — '+x.title,ix);if(ix===pStar)o.selected=true;sel.appendChild(o);});
-  sel.onchange=()=>{pStar=+sel.value;transcript='';hits={};seqState=null;pIx=0;stopSpeech();render();};
+  sel.onchange=()=>{pStar=+sel.value;transcript='';hits={};seqState=null;pIx=0;killRec();stopSpeech();render();};
   head.appendChild(sel);
   const tabs=el('div','row');tabs.style.marginTop='12px';
-  [['say','🎙  Say it back'],['shadow','🔁  Shadow the coach'],['seq','🔢  Order the actions']].forEach(([k,l])=>{
-    const b=el('button','btn '+(practice===k?'':'gh')+' sm',l);b.onclick=()=>{practice=k;stopSpeech();render();};tabs.appendChild(b);});
+  [['say','🎤  Say it back'],['shadow','🔁  Shadow the coach'],['seq','🔢  Order the actions']].forEach(([k,l])=>{
+    const b=el('button','btn '+(practice===k?'':'gh')+' sm',l);b.onclick=()=>{practice=k;killRec();stopSpeech();render();};tabs.appendChild(b);});
   head.appendChild(tabs);
   m.appendChild(head);
 
   if(practice==='say'){
     const c=el('div','card');
     c.appendChild(el('div','vt','Deliver '+esc(s.title)+' from memory'));
-    c.appendChild(el('div','sub','Tap the microphone and give the whole answer aloud. Every key fact you land lights up. Nothing is uploaded anywhere — the transcription happens through your browser.'));
-    const mrow=el('div','row');mrow.style.cssText='margin:16px 0;align-items:center;gap:14px';
-    const mic=el('button','mic'+(recOn?' rec':''),recOn?'■':'●');
-    mic.onclick=()=>{
-      if(!rec)rec=initRec();
-      if(!rec){alert('Speech recognition is not available here. Use Safari on iPhone or Mac, or tap the facts below as you say them.');return;}
-      if(recOn){try{rec.stop();}catch(e){}recOn=false;render();return;}
-      transcript='';hits={};recOn=true;
-      rec.onresult=(e)=>{let t='';for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript+' ';
-        transcript=t;checkHits(s);const tb=document.getElementById('trans');if(tb)tb.textContent=transcript;
-        document.querySelectorAll('.key').forEach(k=>{k.className='key'+(hits[k.dataset.k]?' hit':'');});
-        const hc=document.getElementById('hitc');if(hc)hc.textContent=Object.keys(hits).length+' of '+(s.keys||[]).length+' key facts landed';};
-      rec.onend=()=>{recOn=false;render();};
-      rec.onerror=()=>{recOn=false;render();};
-      try{rec.start();}catch(e){recOn=false;}
-      render();
-    };
-    mrow.appendChild(mic);
-    mrow.appendChild(el('div',null,'<div style="font-weight:700">'+(recOn?'Listening — speak now':'Tap to start')+'</div><div class="sub">'+(recOn?'Tap again when you have finished':'Or tap the facts below as you say each one')+'</div>'));
-    c.appendChild(mrow);
-    c.appendChild(el('div','vt','Key facts this answer must land'));
+    c.appendChild(el('div','sub','Give the whole answer aloud, then check what you landed. Every key fact you hit lights up. Nothing leaves this device.'));
+
+    /* ---- 1. tap the facts as you say them (always works) ---- */
+    c.appendChild(el('div','vt','1 · Say it aloud and tap each fact as you land it'));
     const kb=el('div');
     (s.keys||[]).forEach(k=>{
       const b=el('span','key'+(hits[k]?' hit':''),esc(k));b.dataset.k=k;
-      b.onclick=()=>{hits[k]=hits[k]?0:1;if(!hits[k])delete hits[k];render();};
+      b.onclick=()=>{hits[k]=hits[k]?0:2;if(!hits[k])delete hits[k];render();};
       kb.appendChild(b);});
+    if(!(s.keys||[]).length)kb.appendChild(el('div','sub','This answer carries no hard figures — judge it on structure instead.'));
     c.appendChild(kb);
     const hc=el('div','sub',Object.keys(hits).length+' of '+(s.keys||[]).length+' key facts landed');hc.id='hitc';
     hc.style.marginTop='6px';c.appendChild(hc);
-    c.appendChild(el('div','vt','What you said'));
-    const tb=el('div','tx',esc(transcript)||'<span style="color:var(--dim)">Your words appear here.</span>');tb.id='trans';
-    c.appendChild(tb);
-    const r=el('div','row');r.style.marginTop='12px';
+    const rr=el('div','row');rr.style.marginTop='10px';
+    const cl=el('button','btn gh sm','Clear');cl.onclick=()=>{hits={};transcript='';render();};
+    rr.appendChild(cl);c.appendChild(rr);
+
+    /* ---- 2. dictate with the keyboard mic, or type ---- */
+    c.appendChild(el('div','vt','2 · Or dictate it, and let it mark itself'));
+    c.appendChild(el('div','sub','Tap the box, then tap the <b>microphone key on your keyboard</b> — bottom right, next to the space bar. That is Apple’s own dictation, and it is far more reliable than anything a web page can do. Speak your whole answer, then tap Done.'));
+    const ta=document.createElement('textarea');
+    ta.className='tx';ta.id='trans';ta.value=transcript;
+    ta.placeholder='Dictate or type your answer here…';
+    ta.style.cssText='width:100%;min-height:130px;margin-top:8px;background:#16233c;border:1px solid var(--line);color:#d7e2f4;border-radius:12px;padding:12px;font-size:15px;line-height:1.5;resize:vertical';
+    ta.oninput=()=>{transcript=ta.value;checkHits(s);paintHits(s);};
+    c.appendChild(ta);
+
+    /* ---- 3. optional in-page microphone ---- */
+    const mwrap=el('div');mwrap.style.marginTop='18px';
+    mwrap.appendChild(el('div','vt','3 · In-page microphone (optional)'));
+    const nt=el('div','sub','Live transcription inside the app. It is unreliable on iPhone — if it does not start within a few seconds it will stop itself and tell you. The dictation box above is the better route on iOS.');
+    nt.id='micnote';mwrap.appendChild(nt);
+    const mrow=el('div','row');mrow.style.cssText='margin:14px 0;align-items:center;gap:14px';
+    const why=micAvailable();
+    const mic=el('button','mic'+(recOn?' rec':''),recOn?'■':'●');
+    mic.setAttribute('aria-label',recOn?'Stop listening':'Start listening');
+    if(why){mic.disabled=true;mic.style.opacity=.35;}
+    mic.onclick=()=>{
+      if(recOn){killRec();note('Stopped. What was captured is in the box above.');mic.className='mic';mic.textContent='●';return;}
+      const bad=micAvailable();
+      if(bad){note(bad+' Use the dictation box above instead.','warn');return;}
+      stopSpeech();                       /* never hold the audio session while listening */
+      killRec();
+      rec=initRec();
+      if(!rec){note('Could not start speech recognition. Use the dictation box above instead.','warn');return;}
+      let started=false;
+      recOn=true;mic.className='mic rec';mic.textContent='■';
+      note('Waiting for the microphone…');
+      recWatch=setTimeout(()=>{
+        if(!started){killRec();mic.className='mic';mic.textContent='●';
+          note('The microphone did not respond. On iPhone this usually means Safari has no microphone permission for this site. Check <b>Settings › Safari › Microphone</b>, or just use the dictation box above — it works everywhere.','warn');}
+      },5000);
+      rec.onstart=()=>{started=true;if(recWatch){clearTimeout(recWatch);recWatch=null;}
+        note('Listening. Speak your answer, then tap the square to stop.');};
+      rec.onresult=(e)=>{
+        try{
+          let t='';
+          for(let i=e.resultIndex;i<e.results.length;i++)t+=e.results[i][0].transcript+' ';
+          transcript=(transcript+' '+t).replace(/\s+/g,' ').trim();
+          const box=document.getElementById('trans');if(box)box.value=transcript;
+          checkHits(s);paintHits(s);
+        }catch(err){}
+      };
+      rec.onerror=(e)=>{
+        const code=(e&&e.error)||'unknown';
+        killRec();mic.className='mic';mic.textContent='●';
+        note(code==='not-allowed'||code==='service-not-allowed'
+          ? 'Microphone permission was refused. Open <b>Settings › Safari › Microphone</b> and allow it for this site, or use the dictation box above.'
+          : 'The microphone stopped ('+esc(code)+'). Use the dictation box above instead.','warn');
+      };
+      rec.onend=()=>{
+        if(recWatch){clearTimeout(recWatch);recWatch=null;}
+        recOn=false;rec=null;mic.className='mic';mic.textContent='●';
+        if(started)note('Stopped. Tap again to add more, or check the box above.');
+      };
+      try{rec.start();}
+      catch(err){killRec();mic.className='mic';mic.textContent='●';
+        note('Could not start the microphone. Use the dictation box above instead.','warn');}
+    };
+    mrow.appendChild(mic);
+    mrow.appendChild(el('div',null,'<div style="font-weight:700">'+(why?'Not available here':'Tap to listen')+'</div><div class="sub">'+(why?esc(why):'Optional — the dictation box above is more reliable')+'</div>'));
+    mwrap.appendChild(mrow);
+    c.appendChild(mwrap);
+
+    /* ---- compare ---- */
+    const r=el('div','row');r.style.marginTop='16px';
     const cmp=el('button','btn gh sm','Show the drafted answer');
     const bd=el('div');bd.style.display='none';bd.appendChild(starBody(s));
     cmp.onclick=()=>{bd.style.display=bd.style.display==='none'?'':'none';};
     const hear=el('button','btn gh sm','▶ Hear it delivered');
-    hear.onclick=()=>{const qs=[];['s','t','a','r'].forEach(k=>(s[k]||[]).forEach(p=>sentences(p).forEach(x=>qs.push({text:x}))));
+    hear.onclick=()=>{killRec();const qs=[];['s','t','a','r'].forEach(k=>(s[k]||[]).forEach(p=>sentences(p).forEach(x=>qs.push({text:x}))));
       playSegs(qs,{onSeg:()=>{},onDone:()=>{}});};
-    r.appendChild(cmp);r.appendChild(hear);c.appendChild(r);c.appendChild(bd);
+    const stp=el('button','btn gh sm','■ Stop');stp.onclick=()=>{killRec();stopSpeech();};
+    r.appendChild(cmp);r.appendChild(hear);r.appendChild(stp);c.appendChild(r);c.appendChild(bd);
     m.appendChild(c);
   }
   if(practice==='shadow'){
@@ -797,7 +879,14 @@ function render(){
     stars:renderStars,gaps:renderGaps,search:renderSearch})[mode]();
   document.querySelector('main').scrollTop=0;
 }
-document.addEventListener('visibilitychange',()=>{if(document.hidden&&SP.on)pauseResume();});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){killRec();if(SP.on)stopSpeech();}});
+window.addEventListener('pagehide',()=>{killRec();stopSpeech();});
+window.onerror=function(msg){var b=document.getElementById('errbar');
+  if(!b){b=document.createElement('div');b.id='errbar';b.className='warn';
+    b.style.cssText='position:fixed;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom));z-index:99';
+    document.body.appendChild(b);}
+  b.innerHTML='Something went wrong in the app. Tap to dismiss and carry on.<br><span style="opacity:.7;font-size:12px">'+String(msg).slice(0,140)+'</span>';
+  b.onclick=function(){b.remove();};return true;};
 render();
 </script>
 

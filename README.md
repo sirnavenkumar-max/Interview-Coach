@@ -62,11 +62,22 @@ the compact voice and the premium voice is considerable over a forty minute sess
 
 ## A few things worth knowing
 
-**The microphone.** *Say it back* uses Safari's built-in dictation. The first time, iOS
-asks for permission for both the microphone and speech recognition — allow both. On
-iPhone this sends audio to Apple for transcription in the same way Siri dictation does.
-If you would rather it did not, skip the microphone and tap the key facts manually as
-you say each one; the exercise works either way.
+**The microphone — read this one.** *Say it back* now gives you three routes, in order of
+reliability:
+
+1. **Tap the facts as you say them.** Say the answer aloud, tap each key fact as you land
+   it. No permissions, nothing can go wrong, and it is the most useful of the three
+   because it forces you to notice what you dropped.
+2. **Dictate into the box.** Tap the text box, then tap the **microphone key on your
+   keyboard** — bottom right, beside the space bar. That is Apple's own dictation, the
+   same one you use in Messages. The facts mark themselves as you speak. This is the best
+   route on iPhone.
+3. **The in-page microphone** is optional and marked as such. Safari's in-page speech
+   recognition is unreliable on iOS. If it does not start within five seconds the app now
+   stops it by itself and tells you why. It can no longer hang.
+
+If the in-page microphone reports no permission: **Settings → Safari → Microphone**, and
+allow it for the site. But you do not need it — route 2 is better.
 
 **Speech stops when the screen locks.** That is an iOS rule, not a fault in the app.
 For a long listening session, set **Settings → Display & Brightness → Auto-Lock** to

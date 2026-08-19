@@ -1,4 +1,4 @@
-const CACHE='coach-v1';
+const CACHE="coach-v2";
 const FILES=['./','./index.html','./manifest.webmanifest','./icon-180.png','./icon-192.png','./icon-512.png','./icon-1024.png'];
 self.addEventListener('install',e=>{
   self.skipWaiting();
